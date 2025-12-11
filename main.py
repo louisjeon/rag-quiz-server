@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from httpx import Request
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import JSONResponse
 
@@ -36,10 +37,14 @@ app.include_router(auth.router)
 app.include_router(quizzes.router)
 
 
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(_, exc: Exception):
-	return JSONResponse(
-		status_code=500,
-		content={"error": "Internal Server Error", "detail": str(exc)},
-	)
+import logging
 
+logger = logging.getLogger(__name__)
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal Server Error", "detail": str(exc)},
+    )

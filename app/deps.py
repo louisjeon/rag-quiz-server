@@ -50,3 +50,4 @@ def get_current_user(request: Request) -> Dict[str, Any]:
 
 CurrentUser = Annotated[Dict[str, Any], Depends(get_current_user)]
 
+ 
