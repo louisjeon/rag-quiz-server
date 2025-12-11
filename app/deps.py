@@ -1,10 +1,29 @@
 import asyncio
-from typing import Any, Dict
+from typing import Annotated, Any, Dict
 
+import httpx
+import gotrue.http_clients as gotrue_http_clients
+import gotrue._sync.gotrue_base_api as gotrue_base_api
 from fastapi import Depends, HTTPException, Request, status
 from supabase import Client, create_client
 
 from .config import get_settings
+
+
+# Work around gotrue -> httpx proxy arg mismatch (gotrue passes proxy, httpx expects proxies)
+class _PatchedSyncClient(httpx.Client):
+	def __init__(self, *args, proxy=None, **kwargs):
+		if proxy:
+			kwargs["proxies"] = proxy
+		super().__init__(*args, **kwargs)
+
+	def aclose(self) -> None:
+		self.close()
+
+
+# Patch both the shared http_clients module and the already-imported reference inside gotrue_base_api
+gotrue_http_clients.SyncClient = _PatchedSyncClient
+gotrue_base_api.SyncClient = _PatchedSyncClient
 
 
 def build_supabase_client() -> Client:
@@ -29,5 +48,5 @@ def get_current_user(request: Request) -> Dict[str, Any]:
 	return user
 
 
-CurrentUser = Depends(get_current_user)
+CurrentUser = Annotated[Dict[str, Any], Depends(get_current_user)]
 

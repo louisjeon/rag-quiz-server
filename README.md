@@ -11,7 +11,6 @@ Google OAuth로 로그인한 사용자가 생성한 퀴즈(JSON)를 저장/조�
 ## 설치 및 실행
 
 ```bash
-cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

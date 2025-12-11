@@ -1,8 +1,8 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, HTTPException, Request, status
-from starlette.responses import RedirectResponse
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 
 from .config import get_settings
 from .deps import CurrentUser, run_supabase, supabase_client
@@ -10,33 +10,29 @@ from .deps import CurrentUser, run_supabase, supabase_client
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
-oauth = OAuth()
-oauth.register(
-	"google",
-	client_id=settings.google_client_id,
-	client_secret=settings.google_client_secret,
-	server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-	client_kwargs={"scope": "openid email profile"},
-)
+
+def verify_id_token(token: str) -> Dict[str, Any]:
+	if not settings.google_client_id:
+		raise HTTPException(status_code=500, detail="Google client id not configured")
+	try:
+		return id_token.verify_oauth2_token(
+			token,
+			google_requests.Request(),
+			audience=settings.google_client_id,
+		)
+	except Exception as exc:
+		raise HTTPException(status_code=401, detail=f"Invalid id_token: {exc}") from exc
 
 
-@router.get("/login")
-async def auth_login(request: Request):
-	redirect_uri = request.url_for("auth_callback")
-	return await oauth.google.authorize_redirect(request, redirect_uri)
+@router.post("/token")
+async def auth_with_token(body: Dict[str, str], request: Request):
+	token = body.get("id_token")
+	if not token:
+		raise HTTPException(status_code=400, detail="id_token is required")
 
-
-@router.get("/callback")
-async def auth_callback(request: Request):
-	token = await oauth.google.authorize_access_token(request)
-	userinfo: Optional[Dict[str, Any]] = token.get("userinfo")
-
-	if not userinfo:
-		resp = await oauth.google.get("userinfo", token=token)
-		userinfo = resp.json()
-
-	if not userinfo or "sub" not in userinfo:
-		raise HTTPException(status_code=400, detail="Failed to fetch user info")
+	userinfo = verify_id_token(token)
+	if "sub" not in userinfo:
+		raise HTTPException(status_code=400, detail="Invalid user info")
 
 	user_payload = {
 		"id": userinfo["sub"],
@@ -48,7 +44,7 @@ async def auth_callback(request: Request):
 	await run_supabase(lambda: supabase_client.table("users").upsert(user_payload).execute())
 
 	request.session["user"] = user_payload
-	return RedirectResponse(url=settings.frontend_url, status_code=status.HTTP_302_FOUND)
+	return {"user": user_payload}
 
 
 @router.post("/logout")
